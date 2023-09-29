@@ -1,0 +1,17 @@
+#LLC SAPs
+0x00 Null SAP
+0x02 LLC Sublayer Management / Individual
+0x03 LLC Sublayer Management / Group
+0x06 IP (DoD Internet Protocol)
+0x0e PROWAY (IEC 955) Network Management, Maintenance and Installation
+0x42 STP
+0x4e MMS (Manufacturing Message Service) EIA-RS 511
+0x5e ISI IP
+0x7e X.25 PLP (ISO 8208)
+0x8e PROWAY (IEC 955) Active Station List Maintenance
+0xaa SNAP (Sub-Network Access Protocol/non-IEEE SAPs)
+0xe0 IPX (Novell NetWare)
+0xf0: NETBIOS
+0xf4 LAN Management
+0xfe ISO Network Layer Protocols
+0xff Global DSAP
