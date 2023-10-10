@@ -9,7 +9,8 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 class Packet:
     def __init__(self, frame_number, len_frame_pcap, len_frame_medium, frame_type,
                  src_mac, dst_mac, hexa_frame,
-                 pid=None, sap=None, ether_type=None, src_ip=None, dst_ip=None, protocol=None, src_port=None, dst_port=None, app_protocol=None):
+                 pid=None, sap=None, ether_type=None, src_ip=None, dst_ip=None, protocol=None, src_port=None,
+                 dst_port=None, app_protocol=None):
         self.frame_number = frame_number
         self.len_frame_pcap = len_frame_pcap
         self.len_frame_medium = len_frame_medium
@@ -26,6 +27,12 @@ class Packet:
         self.pid = pid
         self.sap = sap
         self.hexa_frame = hexa_frame
+
+
+class IPv4_sender:
+    def __init__(self, node, number_of_send_packets):
+        self.node = node
+        self.number_of_send_packets = number_of_send_packets
 
 
 # Funkcia pre definovanie dĺžky rámca
@@ -88,14 +95,16 @@ def frame_type(data_in_bytes):
             frame_type_string = "IEEE 802.3 LLC"
     return frame_type_string
 
+
 def hex_pairs_to_ip(hex_pairs):
-    ip_parts = [hex_pairs[i:i+2] for i in range(0, len(hex_pairs), 2)]  # Split into pairs
+    ip_parts = [hex_pairs[i:i + 2] for i in range(0, len(hex_pairs), 2)]  # Split into pairs
     try:
         decimal_parts = [str(int(hex_pair, 16)) for hex_pair in ip_parts]  # Convert to decimal
         ip_address = ".".join(decimal_parts)  # Join parts with dots
         return ip_address
     except ValueError:
         return "Invalid input"
+
 
 # Funkcia pre získanie údajov pre ďalšiu analýzu z externých súborov
 def get_data_from_file(file_string):
@@ -110,13 +119,19 @@ def get_data_from_file(file_string):
 
     return data
 
+def find_max_senders(ip_packet_counts):
+    max_count = max(ip_packet_counts, key=lambda x: x['number_of_send_packets'])['number_of_send_packets']
+    max_senders = [ip['node'] for ip in ip_packet_counts if ip['number_of_send_packets'] == max_count]
+    return max_senders
+
 
 yaml_filename = 'packets_output.yaml'
 pcap_filename = input("Zadajte názov súboru na analýzu v tvare názovsúboru.pcap:")
 packets = rdpcap(pcap_filename)
 frame_number = 1
 packet_frames = []
-
+ip_add_senders = {}
+ip_address_counter = []
 
 for packet in packets:
     data_in_bytes = bytes(packet)
@@ -149,6 +164,21 @@ for packet in packets:
             protocol_decimal = str(int(protocol, 16))
             protocol_name = protocols.get(protocol_decimal, "Unknown type")
             frame.protocol = protocol_name
+
+            if hex_pairs_to_ip(source_ip) not in ip_add_senders:
+                ip = hex_pairs_to_ip(source_ip)
+                count = 1
+                ip_add_senders[ip] = count
+            else:
+                ip_add_senders[hex_pairs_to_ip(source_ip)] += 1
+
+            if hex_pairs_to_ip(dest_ip) not in ip_add_senders:
+                ip = hex_pairs_to_ip(dest_ip)
+                count = 1
+                ip_add_senders[ip] = count
+            else:
+                ip_add_senders[hex_pairs_to_ip(dest_ip)] += 1
+
             if protocol_name == "TCP" or protocol_name == "UDP":
                 source_port = data_in_bytes[34:36].hex()
                 source_port_decimal = int(source_port, 16)
@@ -183,20 +213,29 @@ for packet in packets:
         sap_name = saps.get(frame_sap_string, "Unknown type")
         frame.sap = sap_name
 
+
     # Vyfiltrujeme preč atribúty s None value pre správny výpis do yamlu
     frame_dict = {k: v for k, v in frame.__dict__.items() if v is not None}
 
     packet_frames.append(frame_dict)
     frame_number += 1
 
+for node, packets_sent in ip_add_senders.items():
+    ipv4_sender = IPv4_sender(node, packets_sent)
+    ipv4_dict = {k: v for k, v in ipv4_sender.__dict__.items() if v is not None}
+    ip_address_counter.append(ipv4_dict)
+
+max_senders = find_max_senders(ip_address_counter)
+
 
 yaml_data = {
     'name': 'PKS2023/24',
     'pcap_name': pcap_filename,
     'packets': packet_frames,
+    'ipv4_senders': ip_address_counter,
+    'max_send_packets_by': max_senders,
 }
 
 with open(yaml_filename, 'w') as yaml_file:
     yaml = ruamel.yaml.YAML()
     yaml.dump(yaml_data, yaml_file)
-
