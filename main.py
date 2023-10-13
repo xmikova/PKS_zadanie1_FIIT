@@ -1,10 +1,10 @@
 # Autor: Petra Miková
 # Aktuálna verzia programu obsahuje iba riešenie úlohy 1
+import pprint
 
 from scapy.all import rdpcap
 import ruamel.yaml
 from ruamel.yaml.scalarstring import LiteralScalarString
-
 
 class Packet:
     def __init__(self, frame_number, len_frame_pcap, len_frame_medium, frame_type,
@@ -28,12 +28,58 @@ class Packet:
         self.sap = sap
         self.hexa_frame = hexa_frame
 
+    def to_dict(self):
+        packet_dict = {
+            'frame_number': self.frame_number,
+            'len_frame_pcap': self.len_frame_pcap,
+            'len_frame_medium': self.len_frame_medium,
+            'frame_type': self.frame_type,
+            'src_mac': self.src_mac,
+            'dst_mac': self.dst_mac,
+            'ether_type': self.ether_type,
+            'src_ip': self.src_ip,
+            'dst_ip': self.dst_ip,
+            'protocol': self.protocol,
+            'src_port': self.src_port,
+            'dst_port': self.dst_port,
+            'app_protocol': self.app_protocol,
+            'hexa_frame': self.hexa_frame
+        }
+        return packet_dict
+
 
 class IPv4_sender:
     def __init__(self, node, number_of_send_packets):
         self.node = node
         self.number_of_send_packets = number_of_send_packets
 
+
+class Communication:
+    def __init__(self, number_comm, source_ip, dest_ip, source_port, dest_port, is_complete, packet_list):
+        self.number_comm = number_comm
+        self.source_ip = source_ip
+        self.dest_ip = dest_ip
+        self.source_port = source_port
+        self.dest_port = dest_port
+        self.is_complete = is_complete
+        self.packets_list = packet_list
+
+    def add_packet(self, packet):
+        self.packets_list.append(packet)
+
+    def complete_comm_dict(self):
+        return {
+            'number_comm': self.number_comm,
+            'src_comm': self.source_ip,
+            'dst_comm': self.dest_ip,
+            'packets': [packet.to_dict() for packet in self.packets_list]
+        }
+
+    def incomplete_comm_dict(self):
+        return{
+            'number_comm': self.number_comm,
+            'packets': [packet.to_dict() for packet in self.packets_list]
+        }
 
 # Funkcia pre definovanie dĺžky rámca
 def frame_length_medium(packet):
@@ -119,10 +165,237 @@ def get_data_from_file(file_string):
 
     return data
 
+
 def find_max_senders(ip_packet_counts):
     max_count = max(ip_packet_counts, key=lambda x: x['number_of_send_packets'])['number_of_send_packets']
     max_senders = [ip['node'] for ip in ip_packet_counts if ip['number_of_send_packets'] == max_count]
     return max_senders
+
+
+def filter_tcp_comms(tcp_packets, protocol):
+    HTTP_comms = []
+    FTP_DATA_comms = []
+    FTP_CONTROL_comms = []
+    SSH_comms = []
+    TELNET_comms = []
+    HTTPS_comms = []
+
+    for frame in tcp_packets:
+        get_protocol = frame.app_protocol
+
+        if protocol == "HTTP":
+            if get_protocol == "http":
+                HTTP_comms.append(frame)
+        elif protocol == "FTP-DATA":
+            if get_protocol == "ftp-data":
+                FTP_DATA_comms.append(frame)
+        elif protocol == "FTP-CONTROL":
+            if get_protocol == "ftp-control":
+                FTP_CONTROL_comms.append(frame)
+        elif protocol == "SSH":
+            if get_protocol == "ssh":
+                SSH_comms.append(frame)
+        elif protocol == "TELNET":
+            if get_protocol == "telnet":
+                TELNET_comms.append(frame)
+        elif protocol == "HTTPS":
+            if get_protocol == "https":
+                HTTPS_comms.append(frame)
+
+    if protocol == "HTTP":
+        return HTTP_comms
+    elif protocol == "FTP-DATA":
+        return FTP_DATA_comms
+    elif protocol == "FTP-CONTROL":
+        return FTP_CONTROL_comms
+    elif protocol == "SSH":
+        return SSH_comms
+    elif protocol == "TELNET":
+        return TELNET_comms
+    elif protocol == "HTTPS":
+        return HTTPS_comms
+
+
+def group_comms(comms_list):
+    communications = []
+    for frame in comms_list:
+        if len(communications) == 0:
+            comm = Communication(0, frame.src_ip, frame.dst_ip, frame.src_port, frame.dst_port, 0, packet_list=[])
+            communications.append(comm)
+            comm.add_packet(frame)
+        else:
+            no_of_comm = 0
+            is_new_comm = 1
+            for comm in communications:
+                if ((
+                        frame.src_ip == comm.source_ip and frame.dst_ip == comm.dest_ip and frame.src_port == comm.source_port and
+                        frame.dst_port == comm.dest_port) or (
+                        frame.src_ip == comm.dest_ip and frame.dst_ip == comm.source_ip and frame.src_port == comm.dest_port and frame.dst_port == comm.source_port)):
+                    communications[no_of_comm].add_packet(frame)
+                    is_new_comm = 0
+                    break
+                no_of_comm += 1
+            if is_new_comm == 1:
+                comm = Communication(0, frame.src_ip, frame.dst_ip, frame.src_port, frame.dst_port, 0,packet_list=[])
+                communications.append(comm)
+                comm.add_packet(frame)
+
+    for comm in communications:
+        comm.source_ip = comm.packets_list[0].src_ip
+        comm.dest_ip = comm.packets_list[0].dst_ip
+
+    return communications
+
+def check_isl_comm(hexdump):
+    isl_check_string = ''.join(hexdump[:5])
+    if isl_check_string == "01000C0000" or isl_check_string == "0C000C0000":
+        return hexdump[26:]
+
+def analyze_completeness_of_comm(filtered_comms):
+    flag_complete = 0
+    complete_count = 0
+    incomplete_count = 0
+    for comm in filtered_comms:
+        if len(comm.packets_list) >= 3:
+            complete = 0
+            hexdump1 = check_isl_comm(comm.packets_list[0].hexa_frame.split())
+            hexdump2 = check_isl_comm(comm.packets_list[1].hexa_frame.split())
+            hexdump3 = check_isl_comm(comm.packets_list[2].hexa_frame.split())
+
+            flag1 = hexdump1[47]
+            flag2 = hexdump2[47]
+            flag3 = hexdump3[47]
+
+            if flag1 == '02' and flag2 == '12' and (flag3 == '18' or flag3 == '10'):  # 3-way handshake - SYN, SYN-ACK, ACK
+                complete = 0.5
+
+            if complete == 0:
+                if len(comm.packets_list) >= 4:
+                    hexdump4 = check_isl_comm(comm.packets_list[4].hexa_frame.split())
+                    flag4 = hexdump4[47]
+                    if flag1 == '02' and flag2 == '02' and (flag3 == '18' or flag3 == '10') and (flag4 == '18' or flag4 == '10'):  # 3-way handshake - SYN, SYN, ACK, ACK
+                        complete = 0.5
+
+            if len(comm.packets_list) >= 5: # RST koniec
+                hexdump_last = check_isl_comm(comm.packets_list[len(comm.packets_list)-1].hexa_frame.split())
+                flag_last = hexdump_last[47]
+
+                if flag_last == '14' or flag_last == '04':
+                    complete = 1
+                    complete_count += 1
+                    flag_complete = 1
+                    comm.number_comm = complete_count
+
+            if complete == 0.5 and len(comm.packets_list) >= 7:
+                hexdump_last4 = check_isl_comm(comm.packets_list[len(comm.packets_list)-4].hexa_frame.split())
+                hexdump_last3 = check_isl_comm(comm.packets_list[len(comm.packets_list)-3].hexa_frame.split())
+                hexdump_last2 = check_isl_comm(comm.packets_list[len(comm.packets_list)-2].hexa_frame.split())
+                hexdump_last1 = check_isl_comm(comm.packets_list[len(comm.packets_list)-1].hexa_frame.split())
+
+                flag_last4 = hexdump_last4[47]
+                flag_last3 = hexdump_last3[47]
+                flag_last2 = hexdump_last2[47]
+                flag_last1 = hexdump_last1[47]
+
+                if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and flag_last3 == "10" and (flag_last2 == "11" or flag_last2 == "01" or flag_last2 == "19") and flag_last1 == "10":
+                    complete = 1
+                    complete_count += 1
+                    flag_complete = 1
+                    comm.number_comm = complete_count
+
+                if complete == 0.5:
+                    if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and (flag_last3 == "11" or flag_last3 == "01" or flag_last3 == "19") and flag_last2 == "10" and flag_last1 == "10":
+                        complete = 1
+                        complete_count += 1
+                        flag_complete = 1
+                        comm.number_comm = complete_count
+
+        if flag_complete == 0:
+            incomplete_count += 1
+            comm.number_comm = incomplete_count
+
+        comm.is_complete = complete
+        flag_complete = 0
+        pprint.pprint(comm.__dict__)
+    return filtered_comms
+
+def distinguish_comms(filtered_comms):
+    complete_comms = []
+    incomplete_comms = []
+
+    for comm in filtered_comms:
+        if (comm.is_complete == 0 or comm.is_complete == 0.5) and comm.number_comm == 1: # vypis prvej nekompletnej
+            incomplete_comms.append(comm.incomplete_comm_dict())
+        elif comm.is_complete == 1: #kompletne komunikacie
+            complete_comms.append(comm.complete_comm_dict())
+
+    yaml_filename = 'packets_http.yaml'
+
+    yaml_data = {
+        'name': 'PKS2023/24',
+        'pcap_name': pcap_filename,
+        'filter_name': "HTTP",
+        'complete_comms': complete_comms,
+        'incomplete_comms': incomplete_comms,
+    }
+
+    with open(yaml_filename, 'w') as yaml_file:
+        yaml = ruamel.yaml.YAML()
+        yaml.dump(yaml_data, yaml_file)
+
+
+def tftp_comms(udp_packets):
+    comms = []
+    counter = 0
+    data_lengths = []
+    prev_frame = None
+    is_complete = 0
+    communication_state = 0 # 1 - start, 2 - getting data pckgs, 3 - found shorter data pckg, 4- successful end with ack
+    for udp_frame in udp_packets:
+        if udp_frame.dst_port == 69:
+            communication_state = 1
+            communication = Communication(counter + 1, udp_frame.src_ip, udp_frame.dst_ip, udp_frame.src_port, udp_frame.dst_port, 0, packet_list=[])
+            communication.add_packet(udp_frame)
+            comms.append(communication)
+        elif communication_state == 1:
+            hexdump = udp_frame.hexa_frame.split()
+            opcode = ''.join(hexdump[42:44])
+            if opcode == "0003": #ide o datapacket za zaciatkom komunikacir
+                comms[counter].add_packet(udp_frame)
+                communication_state = 2
+            else:
+                communication_state = 0
+        elif communication_state == 2:
+            if udp_frame.src_port == prev_frame.dst_port and udp_frame.dst_port == prev_frame.src_port:
+                comms[counter].add_packet(udp_frame)
+                hexdump = udp_frame.hexa_frame.split()
+                opcode = ''.join(hexdump[42:44])
+                if opcode == "0003":
+                    if len(data_lengths) == 0:
+                        data_lengths.append(len(hexdump[46:]))
+                    elif len(data_lengths) > 1 and len(hexdump[46:]) not in data_lengths:
+                        communication_state = 3
+                    else:
+                        data_lengths.append(len(hexdump[46:]))
+                elif opcode != "0004":
+                    communication_state = 0
+                    comms[counter].is_complete = 0
+                    counter += 1
+        elif communication_state == 3:
+            comms[counter].add_packet(udp_frame)
+            hexdump = udp_frame.hexa_frame.split()
+            opcode = ''.join(hexdump[42:44])
+            if opcode == "0004":
+                communication_state = 4
+                comms[counter].is_complete = 1
+                counter += 1
+                data_lengths = []
+            else:
+                communication_state = 0
+                comms[counter].is_complete = 0
+                counter += 1
+
+        prev_frame = udp_frame
 
 
 yaml_filename = 'packets_output.yaml'
@@ -132,6 +405,8 @@ frame_number = 1
 packet_frames = []
 ip_add_senders = {}
 ip_address_counter = []
+tcp_packets = []
+udp_packets = []
 
 for packet in packets:
     data_in_bytes = bytes(packet)
@@ -192,12 +467,15 @@ for packet in packets:
                         frame.app_protocol = tcp_server_ports.get(str(source_port_decimal))
                     elif frame.app_protocol is None and str(dest_port_decimal) in tcp_server_ports:
                         frame.app_protocol = tcp_server_ports.get(str(dest_port_decimal))
+                    tcp_packets.append(frame)
+
                 elif protocol_name == "UDP":
                     udp_server_ports = get_data_from_file("Protocols/UDP.txt")
                     if str(source_port_decimal) in udp_server_ports:
                         frame.app_protocol = udp_server_ports.get(str(source_port_decimal))
                     elif frame.app_protocol is None and str(dest_port_decimal) in udp_server_ports:
                         frame.app_protocol = udp_server_ports.get(str(dest_port_decimal))
+                    udp_packets.append(frame)
 
     if frame_type_result == "IEEE 802.3 LLC & SNAP":
         pids = get_data_from_file("Protocols/PID.txt")
@@ -213,7 +491,6 @@ for packet in packets:
         sap_name = saps.get(frame_sap_string, "Unknown type")
         frame.sap = sap_name
 
-
     # Vyfiltrujeme preč atribúty s None value pre správny výpis do yamlu
     frame_dict = {k: v for k, v in frame.__dict__.items() if v is not None}
 
@@ -226,6 +503,8 @@ for node, packets_sent in ip_add_senders.items():
     ip_address_counter.append(ipv4_dict)
 
 max_senders = find_max_senders(ip_address_counter)
+
+tftp_comms(udp_packets)
 
 
 yaml_data = {
