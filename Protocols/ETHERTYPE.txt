@@ -17,3 +17,4 @@
 0x8863 PPPoE Discovery Stage
 0x8864 PPPoE Session Stage
 0x88CC LLDP
+Ox9000 Loopback
