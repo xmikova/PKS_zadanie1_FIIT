@@ -10,7 +10,7 @@ class Packet:
     def __init__(self, frame_number, len_frame_pcap, len_frame_medium, frame_type,
                  src_mac, dst_mac, hexa_frame,
                  pid=None, sap=None, ether_type=None, src_ip=None, dst_ip=None, protocol=None, src_port=None,
-                 dst_port=None, app_protocol=None, icmp_type=None, icmp_id=None, icmp_seq=None):
+                 dst_port=None, app_protocol=None, icmp_type=None, icmp_id=None, icmp_seq=None, arp_opcode=None):
         self.frame_number = frame_number
         self.len_frame_pcap = len_frame_pcap
         self.len_frame_medium = len_frame_medium
@@ -18,6 +18,7 @@ class Packet:
         self.src_mac = src_mac
         self.dst_mac = dst_mac
         self.ether_type = ether_type
+        self.arp_opcode = arp_opcode
         self.src_ip = src_ip
         self.dst_ip = dst_ip
         self.protocol = protocol
@@ -50,7 +51,7 @@ class Packet:
         }
         return packet_dict
 
-    def to_dict_icmp(self):
+    def to_dict_icmp_complete(self):
         packet_dict = {
             'frame_number': self.frame_number,
             'len_frame_pcap': self.len_frame_pcap,
@@ -69,6 +70,38 @@ class Packet:
         }
         return packet_dict
 
+    def to_dict_icmp_incomplete(self):
+        packet_dict = {
+            'frame_number': self.frame_number,
+            'len_frame_pcap': self.len_frame_pcap,
+            'len_frame_medium': self.len_frame_medium,
+            'frame_type': self.frame_type,
+            'src_mac': self.src_mac,
+            'dst_mac': self.dst_mac,
+            'ether_type': self.ether_type,
+            'src_ip': self.src_ip,
+            'dst_ip': self.dst_ip,
+            'protocol': self.protocol,
+            'icmp_type': self.icmp_type,
+            'hexa_frame': self.hexa_frame
+        }
+        return packet_dict
+
+    def to_dict_arp(self):
+        packet_dict = {
+            'frame_number': self.frame_number,
+            'len_frame_pcap': self.len_frame_pcap,
+            'len_frame_medium': self.len_frame_medium,
+            'frame_type': self.frame_type,
+            'src_mac':self.src_mac,
+            'dst_mac': self.dst_mac,
+            'ether_type': self.ether_type,
+            'arp_opcode': self.arp_opcode,
+            'src_ip': self.src_ip,
+            'dst_ip': self.dst_ip,
+            'hexa_frame': self.hexa_frame
+        }
+        return packet_dict
 
 class IPv4_sender:
     def __init__(self, node, number_of_send_packets):
@@ -108,13 +141,19 @@ class Communication:
             'number_comm': self.number_comm,
             'src_comm': self.source_ip,
             'dst_comm': self.dest_ip,
-            'packets': [packet.to_dict_icmp() for packet in self.packet_list]
+            'packets': [packet.to_dict_icmp_complete() for packet in self.packet_list]
         }
 
     def incomplete_comm_dict_icmp(self):
         return{
             'number_comm': self.number_comm,
-            'packets': [packet.to_dict_icmp() for packet in self.packet_list]
+            'packets': [packet.to_dict_icmp_incomplete() for packet in self.packet_list]
+        }
+
+    def arp_comm(self):
+        return{
+            'number_comm': self.number_comm,
+            'packets': [packet.to_dict_arp() for packet in self.packet_list]
         }
 
 # Funkcia pre definovanie dĺžky rámca
@@ -479,6 +518,7 @@ def icmp_comms(icmp_packets):
     complete_counter = 1
     incomplete_counter = 1
     incomplete_packets = []
+    complete_comms_final = []
 
     for comm in grouped_icmp_comms:
         complete_comms.append(comm)
@@ -503,13 +543,14 @@ def icmp_comms(icmp_packets):
             updated_packet_list = [packet for packet in comm.packet_list if packet not in incomplete_packets]
             comm.packet_list = updated_packet_list
             complete_comms.remove(comm)
-            complete_comms.append(comm.complete_comm_dict_icmp())
+            complete_comms_final.append(comm.complete_comm_dict_icmp())
 
 
     for packet in incomplete_packets:
         comm = Communication(incomplete_counter, packet.src_ip, packet.dst_ip, packet.src_port, packet.dst_port, 0, packet_list=[])
         incomplete_counter += 1
         comm.packet_list.append(packet)
+        # TODO prerobit ze zgrupovat podla ipciek
         comm = comm.incomplete_comm_dict_icmp()
         incomplete_comms.append(comm)
 
@@ -519,6 +560,104 @@ def icmp_comms(icmp_packets):
         'name': 'PKS2023/24',
         'pcap_name': pcap_filename,
         'filter_name': "ICMP",
+        'complete_comms': complete_comms_final,
+        'partial_comms': incomplete_comms
+    }
+
+    with open(yaml_filename, 'w') as yaml_file:
+        yaml = ruamel.yaml.YAML()
+        yaml.dump(yaml_data, yaml_file)
+
+def arp_comms(arp_packets):
+    filtered_arp_packets = []
+    communications = []
+    complete_comms = []
+    incomplete_comms = []
+
+    for packet in arp_packets:
+        hexdump = packet.hexa_frame.split()
+        opcode = hexdump[21]
+        if opcode == "01":
+            packet.arp_opcode = "REQUEST"
+            filtered_arp_packets.append(packet)
+        elif opcode == "02":
+            packet.arp_opcode = "REPLY"
+            filtered_arp_packets.append(packet)
+
+    for frame in filtered_arp_packets:
+        is_new_comm = 1
+        for comm in communications:
+            if (frame.arp_opcode == "REQUEST" and frame.dst_ip == comm.source_ip) or (frame.arp_opcode == "REPLY" and frame.src_ip == comm.source_ip):
+                comm.add_packet(frame)
+                is_new_comm = 0
+                break
+
+        if is_new_comm == 1:
+            if frame.arp_opcode == "REQUEST":
+                comm = Communication(0, frame.dst_ip, None, None, None, 0, packet_list=[])
+            else:
+                comm = Communication(0, frame.src_ip, None, None, None, 0, packet_list=[])
+            comm.add_packet(frame)
+            communications.append(comm)
+
+    complete_counter = 1
+    incomplete_counter = 1
+    for comm in communications:
+        request_packets = []
+        reply_packets = []
+
+        for packet in comm.packet_list:
+            if packet.arp_opcode == "REQUEST":
+                request_packets.append(packet)
+            elif packet.arp_opcode == "REPLY":
+                reply_packets.append(packet)
+
+        all_packets = comm.packet_list
+        comm.packet_list = []
+
+        paired_packets = []
+        paired_reply_nums = []
+
+        # Iterate through request and reply packets to find pairs
+        for req_packet in request_packets:
+            for reply_packet in reply_packets:
+                if (req_packet.dst_ip == reply_packet.src_ip) and reply_packet.frame_number not in paired_reply_nums:
+                    paired_packets.append(req_packet)
+                    paired_packets.append(reply_packet)
+                    paired_reply_nums.append(reply_packet.frame_number)
+                    break
+
+        # Remove paired packets from the original lists
+        for packet in paired_packets:
+            if packet in all_packets:
+                all_packets.remove(packet)
+
+        # Add the paired packets back to the communication object
+        for packet in paired_packets:
+            comm.packet_list.append(packet)
+
+        if len(all_packets) > 0:
+            incomplete_comm = comm
+            incomplete_comm.packet_list = []
+            for packet in all_packets:
+                incomplete_comm.packet_list.append(packet)
+
+            incomplete_comm.number_comm = incomplete_counter
+            incomplete_comm = incomplete_comm.arp_comm()
+            incomplete_counter += 1
+            incomplete_comms.append(incomplete_comm)
+
+        comm.number_comm = complete_counter
+        comm = comm.arp_comm()
+        complete_counter += 1
+        complete_comms.append(comm)
+
+    yaml_filename = 'packets_arp.yaml'
+
+    yaml_data = {
+        'name': 'PKS2023/24',
+        'pcap_name': pcap_filename,
+        'filter_name': "ARP",
         'complete_comms': complete_comms,
         'partial_comms': incomplete_comms
     }
@@ -537,6 +676,7 @@ ip_address_counter = []
 tcp_packets = []
 udp_packets = []
 icmp_packets = []
+arp_packets = []
 
 for packet in packets:
     data_in_bytes = bytes(packet)
@@ -563,6 +703,14 @@ for packet in packets:
             frame.src_ip = hex_pairs_to_ip(source_ip)
             dest_ip = data_in_bytes[30:34].hex()
             frame.dst_ip = hex_pairs_to_ip(dest_ip)
+
+        if ethertype_name == "ARP":
+            arp_packets.append(frame)
+            source_ip = data_in_bytes[28:32].hex()
+            frame.src_ip = hex_pairs_to_ip(source_ip)
+            dest_ip = data_in_bytes[38:42].hex()
+            frame.dst_ip = hex_pairs_to_ip(dest_ip)
+
         if ethertype_name == "IPv4":
             protocols = get_data_from_file("Protocols/IP_PROTOCOLS.txt")
             protocol = data_in_bytes[23:24].hex()
