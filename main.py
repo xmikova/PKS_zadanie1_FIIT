@@ -396,7 +396,7 @@ def analyze_completeness_of_comm(filtered_comms):
                 flag_last1 = hexdump_last1[47]
 
                 # 4-way handshake - FIN, ACK, FIN, ACK / FIN-ACK, ACK, FIN-ACK, ACK
-                if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and flag_last3 == "10" and (flag_last2 == "11" or flag_last2 == "01" or flag_last2 == "19") and flag_last1 == "10":
+                if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and (flag_last3 == "10" or flag_last3 == "18") and (flag_last2 == "11" or flag_last2 == "01" or flag_last2 == "19") and (flag_last1 == "10" or flag_last1 == "18"):
                     complete = 1
                     complete_count += 1
                     flag_complete = 1
@@ -404,7 +404,7 @@ def analyze_completeness_of_comm(filtered_comms):
 
                 if complete == 0.5:
                     # FIN, FIN, ACK, ACK
-                    if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and (flag_last3 == "11" or flag_last3 == "01" or flag_last3 == "19") and flag_last2 == "10" and flag_last1 == "10":
+                    if (flag_last4 == "11" or flag_last4 == "01" or flag_last4 == "19") and (flag_last3 == "11" or flag_last3 == "01" or flag_last3 == "19") and (flag_last2 == "10" or flag_last2 == "18") and (flag_last1 == "10" or flag_last1 == "18"):
                         complete = 1
                         complete_count += 1
                         flag_complete = 1
