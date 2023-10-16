@@ -1,6 +1,6 @@
+# Zadanie 1: analyzátor sieťovej komunikácie
+# PKS 2023/2024
 # Autor: Petra Miková
-# Aktuálna verzia programu obsahuje iba riešenie úlohy 1
-import pprint
 
 from scapy.all import rdpcap
 import ruamel.yaml
@@ -145,6 +145,8 @@ class Packet:
             'hexa_frame': self.hexa_frame
         }
         return packet_dict
+
+
 class IPv4_sender:
     def __init__(self, node, number_of_send_packets):
         self.node = node
@@ -179,36 +181,19 @@ class Communication:
         }
 
     def complete_comm_dict_icmp(self):
-        packets = []
-        for packet in self.packet_list:
-            if packet.flags_mf == "true":
-                packets.append(packet.to_dict_mf_flag())
-            elif packet.flags_mf == "false":
-                packets.append(packet.to_dict_mf_false())
-            else:
-                packets.append(packet.to_dict_icmp_complete())
-
         return {
             'number_comm': self.number_comm,
             'src_comm': self.source_ip,
             'dst_comm': self.dest_ip,
-            'packets': packets
+            'packets': [packet.to_dict_icmp_complete() for packet in self.packet_list]
         }
 
     def incomplete_comm_dict_icmp(self):
-        packets = []
-        for packet in self.packet_list:
-            if packet.flags_mf == "true":
-                packets.append(packet.to_dict_mf_flag())
-            elif packet.flags_mf == "false":
-                packets.append(packet.to_dict_mf_false())
-            else:
-                packets.append(packet.to_dict_icmp_incomplete())
-
         return{
             'number_comm': self.number_comm,
-            'packets': packets
+            'packets': [packet.to_dict_icmp_incomplete() for packet in self.packet_list]
         }
+
 
     def arp_comm(self):
         return{
@@ -316,38 +301,30 @@ def filter_tcp_comms(tcp_packets, protocol):
     HTTPS_comms = []
 
     for frame in tcp_packets:
-        get_protocol = frame.app_protocol
+        if frame.app_protocol == "http":
+            HTTP_comms.append(frame)
+        elif frame.app_protocol == "ftp-data":
+            FTP_DATA_comms.append(frame)
+        elif frame.app_protocol == "ftp-control":
+            FTP_CONTROL_comms.append(frame)
+        elif frame.app_protocol == "ssh":
+            SSH_comms.append(frame)
+        elif frame.app_protocol == "telnet":
+            TELNET_comms.append(frame)
+        elif frame.app_protocol == "https":
+            HTTPS_comms.append(frame)
 
-        if protocol == "HTTP":
-            if get_protocol == "http":
-                HTTP_comms.append(frame)
-        elif protocol == "FTP-DATA":
-            if get_protocol == "ftp-data":
-                FTP_DATA_comms.append(frame)
-        elif protocol == "FTP-CONTROL":
-            if get_protocol == "ftp-control":
-                FTP_CONTROL_comms.append(frame)
-        elif protocol == "SSH":
-            if get_protocol == "ssh":
-                SSH_comms.append(frame)
-        elif protocol == "TELNET":
-            if get_protocol == "telnet":
-                TELNET_comms.append(frame)
-        elif protocol == "HTTPS":
-            if get_protocol == "https":
-                HTTPS_comms.append(frame)
-
-    if protocol == "HTTP":
+    if protocol == "http":
         return HTTP_comms
-    elif protocol == "FTP-DATA":
+    elif protocol == "ftp-data":
         return FTP_DATA_comms
-    elif protocol == "FTP-CONTROL":
+    elif protocol == "ftp-control":
         return FTP_CONTROL_comms
-    elif protocol == "SSH":
+    elif protocol == "ssh":
         return SSH_comms
-    elif protocol == "TELNET":
+    elif protocol == "telnet":
         return TELNET_comms
-    elif protocol == "HTTPS":
+    elif protocol == "https":
         return HTTPS_comms
 
 
@@ -385,11 +362,14 @@ def check_isl_comm(hexdump):
     isl_check_string = ''.join(hexdump[:5])
     if isl_check_string == "01000C0000" or isl_check_string == "0C000C0000":
         return hexdump[26:]
+    else:
+        return hexdump
 
 def analyze_completeness_of_comm(filtered_comms):
     flag_complete = 0
     complete_count = 0
     incomplete_count = 0
+    complete = 0
     for comm in filtered_comms:
         if len(comm.packet_list) >= 3:
             complete = 0
@@ -406,16 +386,24 @@ def analyze_completeness_of_comm(filtered_comms):
 
             if complete == 0:
                 if len(comm.packet_list) >= 4:
-                    hexdump4 = check_isl_comm(comm.packet_list[4].hexa_frame.split())
+                    hexdump4 = check_isl_comm(comm.packet_list[3].hexa_frame.split())
                     flag4 = hexdump4[47]
                     if flag1 == '02' and flag2 == '02' and (flag3 == '18' or flag3 == '10') and (flag4 == '18' or flag4 == '10'):  # 3-way handshake - SYN, SYN, ACK, ACK
                         complete = 0.5
 
             if len(comm.packet_list) >= 5: # RST koniec
+                hexdump_last2 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 2].hexa_frame.split())
                 hexdump_last = check_isl_comm(comm.packet_list[len(comm.packet_list) - 1].hexa_frame.split())
+                flag_last2 = hexdump_last2[47]
                 flag_last = hexdump_last[47]
 
                 if flag_last == '14' or flag_last == '04':
+                    complete = 1
+                    complete_count += 1
+                    flag_complete = 1
+                    comm.number_comm = complete_count
+
+                if flag_last == "10" and (flag_last2 == '14' or flag_last2 == '04'):
                     complete = 1
                     complete_count += 1
                     flag_complete = 1
@@ -445,6 +433,34 @@ def analyze_completeness_of_comm(filtered_comms):
                         flag_complete = 1
                         comm.number_comm = complete_count
 
+            if complete == 0.5 and len(comm.packet_list) >= 5:
+                hexdump_last3 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 3].hexa_frame.split())
+                hexdump_last2 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 2].hexa_frame.split())
+                hexdump_last1 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 1].hexa_frame.split())
+
+                flag_last3 = hexdump_last3[47]
+                flag_last2 = hexdump_last2[47]
+                flag_last1 = hexdump_last1[47]
+
+                if (flag_last1 == "11" or flag_last1 == "19") and flag_last2 == "10" and (flag_last3 == "11" or flag_last3 == "19"):
+                    complete = 1
+                    complete_count += 1
+                    flag_complete = 1
+                    comm.number_comm = complete_count
+
+            if complete == 0.5 and len(comm.packet_list) >= 6:
+                hexdump_last2 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 2].hexa_frame.split())
+                hexdump_last1 = check_isl_comm(comm.packet_list[len(comm.packet_list) - 1].hexa_frame.split())
+
+                flag_last2 = hexdump_last2[47]
+                flag_last1 = hexdump_last1[47]
+
+                if (flag_last1 == "11" or flag_last1 == "19") and (flag_last2 == "11" or flag_last2 == "19"):
+                    complete = 1
+                    complete_count += 1
+                    flag_complete = 1
+                    comm.number_comm = complete_count
+
         if flag_complete == 0:
             incomplete_count += 1
             comm.number_comm = incomplete_count
@@ -456,21 +472,25 @@ def analyze_completeness_of_comm(filtered_comms):
 def distinguish_tcp_comms(filtered_comms):
     complete_comms = []
     incomplete_comms = []
+    protocol = ""
 
     for comm in filtered_comms:
         if (comm.is_complete == 0 or comm.is_complete == 0.5) and comm.number_comm == 1: # vypis prvej nekompletnej
             incomplete_comms.append(comm.incomplete_comm_dict_tcp())
         elif comm.is_complete == 1: #kompletne komunikacie
             complete_comms.append(comm.complete_comm_dict_tcp())
+        if protocol == "":
+            for packet in comm.packet_list:
+                protocol = packet.app_protocol
 
-    yaml_filename = 'packets_http.yaml'
+    yaml_filename = 'packets_' + protocol + '.yaml'
 
     yaml_data = {
         'name': 'PKS2023/24',
         'pcap_name': pcap_filename,
         'filter_name': "HTTP",
         'complete_comms': complete_comms,
-        'incomplete_comms': incomplete_comms,
+        'partial_comms': incomplete_comms,
     }
 
     with open(yaml_filename, 'w') as yaml_file:
@@ -635,20 +655,6 @@ def icmp_comms(icmp_packets):
         yaml.dump(yaml_data, yaml_file)
 
 
-    yaml_filename = 'packets_icmp.yaml'
-
-    yaml_data = {
-        'name': 'PKS2023/24',
-        'pcap_name': pcap_filename,
-        'filter_name': "ICMP",
-        'complete_comms': complete_comms_final,
-        'partial_comms': incomplete_comms
-    }
-
-    with open(yaml_filename, 'w') as yaml_file:
-        yaml = ruamel.yaml.YAML()
-        yaml.dump(yaml_data, yaml_file)
-
 def arp_comms(arp_packets):
     filtered_arp_packets = []
     communications = []
@@ -747,144 +753,182 @@ def arp_comms(arp_packets):
         yaml = ruamel.yaml.YAML()
         yaml.dump(yaml_data, yaml_file)
 
-yaml_filename = 'packets_output.yaml'
-pcap_filename = input("Zadajte názov súboru na analýzu v tvare názovsúboru.pcap:")
-packets = rdpcap(pcap_filename)
-frame_number = 1
-packet_frames = []
-ip_add_senders = {}
-ip_address_counter = []
-tcp_packets = []
-udp_packets = []
-icmp_packets = []
-arp_packets = []
+if __name__ == "__main__":
 
-for packet in packets:
-    data_in_bytes = bytes(packet)
-    ISL_header_check_hex = data_in_bytes[0:5].hex()
-    if ISL_header_check_hex == "01000c0000" or ISL_header_check_hex == "0c000c0000":
-        # Sledujeme či má rámec ISL header, ak áno posúvame sa o jeho celú dĺžku
-        data_in_bytes = data_in_bytes[26:]
+    print()
+    print("*----------------------------------------------------------------------------*")
+    print("|                      Analyzátor sieťovej komunikácie                       |")
+    print("|                           Autor: Petra Miková                              |")
+    print("*----------------------------------------------------------------------------*")
+    print()
 
-    frame_type_result = frame_type(data_in_bytes)
+    print("-----------------------------------GUIDE--------------------------------------")
+    print("http - výpis HTTP komunikácii")
+    print("https - výpis HTTPS komunikácii")
+    print("telnet - výpis TELNET komunikácii")
+    print("ssh - výpis SSH komunikácii")
+    print("ftp-control - výpis FTP riadiaci protokol komunikácii")
+    print("ftp-data - výpis FTP dátový protokol komunikácii")
+    print("tftp - pre výpis TFTP komunikácii")
+    print("ICMP - pre výpis ICMP komunikácii")
+    print("ARP - pre výpis ARP komunikácii")
+    print()
+    user_input = input("Zadajte filter (skratku protokolu):")
 
-    frame = Packet(frame_number=frame_number, len_frame_pcap=len(packet), len_frame_medium=frame_length_medium(packet),
-                   frame_type=frame_type_result, src_mac=mac_address_format(data_in_bytes[6:12].hex()),
-                   dst_mac=mac_address_format(data_in_bytes[0:6].hex()),
-                   hexa_frame=LiteralScalarString(print_hex_dump(packet)))
+    yaml_filename = 'packets_output.yaml'
+    pcap_filename = input("Zadajte názov súboru na analýzu v tvare názovsúboru.pcap:")
+    packets = rdpcap(pcap_filename)
+    frame_number = 1
+    packet_frames = []
+    ip_add_senders = {}
+    ip_address_counter = []
+    tcp_packets = []
+    udp_packets = []
+    icmp_packets = []
+    arp_packets = []
 
-    if frame_type_result == "ETHERNET II":
-        ethertypes = get_data_from_file("Protocols/ETHERTYPE.txt")
-        frame_part3_hex = data_in_bytes[12:14].hex().upper()
-        frame_part3_string = "0x" + frame_part3_hex
-        ethertype_name = ethertypes.get(frame_part3_string, "Unknown type")
-        frame.ether_type = ethertype_name
-        if ethertype_name not in ["LLDP", "IPv6", "Unknown type"]:
-            source_ip = data_in_bytes[26:30].hex()
-            frame.src_ip = hex_pairs_to_ip(source_ip)
-            dest_ip = data_in_bytes[30:34].hex()
-            frame.dst_ip = hex_pairs_to_ip(dest_ip)
+    for packet in packets:
+        data_in_bytes = bytes(packet)
+        ISL_header_check_hex = data_in_bytes[0:5].hex()
+        if ISL_header_check_hex == "01000c0000" or ISL_header_check_hex == "0c000c0000":
+            # Sledujeme či má rámec ISL header, ak áno posúvame sa o jeho celú dĺžku
+            data_in_bytes = data_in_bytes[26:]
 
-        if ethertype_name == "ARP":
-            arp_packets.append(frame)
-            source_ip = data_in_bytes[28:32].hex()
-            frame.src_ip = hex_pairs_to_ip(source_ip)
-            dest_ip = data_in_bytes[38:42].hex()
-            frame.dst_ip = hex_pairs_to_ip(dest_ip)
+        frame_type_result = frame_type(data_in_bytes)
 
-        if ethertype_name == "IPv4":
-            protocols = get_data_from_file("Protocols/IP_PROTOCOLS.txt")
-            protocol = data_in_bytes[23:24].hex()
-            protocol_decimal = str(int(protocol, 16))
-            protocol_name = protocols.get(protocol_decimal, "Unknown type")
-            frame.protocol = protocol_name
+        frame = Packet(frame_number=frame_number, len_frame_pcap=len(packet), len_frame_medium=frame_length_medium(packet),
+                       frame_type=frame_type_result, src_mac=mac_address_format(data_in_bytes[6:12].hex()),
+                       dst_mac=mac_address_format(data_in_bytes[0:6].hex()),
+                       hexa_frame=LiteralScalarString(print_hex_dump(packet)))
 
-            if hex_pairs_to_ip(source_ip) not in ip_add_senders:
-                ip = hex_pairs_to_ip(source_ip)
-                count = 1
-                ip_add_senders[ip] = count
-            else:
-                ip_add_senders[hex_pairs_to_ip(source_ip)] += 1
+        if frame_type_result == "ETHERNET II":
+            ethertypes = get_data_from_file("Protocols/ETHERTYPE.txt")
+            frame_part3_hex = data_in_bytes[12:14].hex().upper()
+            frame_part3_string = "0x" + frame_part3_hex
+            ethertype_name = ethertypes.get(frame_part3_string, "Unknown type")
+            frame.ether_type = ethertype_name
 
-            if hex_pairs_to_ip(dest_ip) not in ip_add_senders:
-                ip = hex_pairs_to_ip(dest_ip)
-                count = 1
-                ip_add_senders[ip] = count
-            else:
-                ip_add_senders[hex_pairs_to_ip(dest_ip)] += 1
+            if ethertype_name not in ["LLDP", "IPv6", "Unknown type"]:
+                source_ip = data_in_bytes[26:30].hex()
+                frame.src_ip = hex_pairs_to_ip(source_ip)
+                dest_ip = data_in_bytes[30:34].hex()
+                frame.dst_ip = hex_pairs_to_ip(dest_ip)
 
-            if protocol_name == "TCP" or protocol_name == "UDP":
-                source_port = data_in_bytes[34:36].hex()
-                source_port_decimal = int(source_port, 16)
-                frame.src_port = source_port_decimal
-                dest_port = data_in_bytes[36:38].hex()
-                dest_port_decimal = int(dest_port, 16)
-                frame.dst_port = dest_port_decimal
-                if protocol_name == "TCP":
-                    tcp_server_ports = get_data_from_file("Protocols/TCP.txt")
-                    if str(source_port_decimal) in tcp_server_ports:
-                        frame.app_protocol = tcp_server_ports.get(str(source_port_decimal))
-                    elif frame.app_protocol is None and str(dest_port_decimal) in tcp_server_ports:
-                        frame.app_protocol = tcp_server_ports.get(str(dest_port_decimal))
-                    tcp_packets.append(frame)
+            if ethertype_name == "ARP":
+                arp_packets.append(frame)
+                source_ip = data_in_bytes[28:32].hex()
+                frame.src_ip = hex_pairs_to_ip(source_ip)
+                dest_ip = data_in_bytes[38:42].hex()
+                frame.dst_ip = hex_pairs_to_ip(dest_ip)
 
-                elif protocol_name == "UDP":
-                    udp_server_ports = get_data_from_file("Protocols/UDP.txt")
-                    if str(source_port_decimal) in udp_server_ports:
-                        frame.app_protocol = udp_server_ports.get(str(source_port_decimal))
-                    elif frame.app_protocol is None and str(dest_port_decimal) in udp_server_ports:
-                        frame.app_protocol = udp_server_ports.get(str(dest_port_decimal))
-                    udp_packets.append(frame)
-            if protocol_name == "ICMP":
-                icmp_codes = get_data_from_file("Protocols/ICMP.txt")
-                ihl_byte = str(data_in_bytes[14:15].hex())
-                ihl = ihl_byte[1]
-                decimal_ihl = int(ihl, 16) * 4
-                icmp_type = int(data_in_bytes[(14 + decimal_ihl):(14 + decimal_ihl + 1)].hex(), 16)
-                frame.icmp_type = icmp_codes.get(str(icmp_type))
-                identifier = int(data_in_bytes[(14 + decimal_ihl + 4): (14 + decimal_ihl + 6)].hex(),16)
-                frame.icmp_id = identifier
-                sequence = int(data_in_bytes[(14 + decimal_ihl + 6): (14 + decimal_ihl + 8)].hex(),16)
-                frame.icmp_seq = sequence
-                icmp_packets.append(frame)
+            if ethertype_name == "IPv4":
+                protocols = get_data_from_file("Protocols/IP_PROTOCOLS.txt")
+                protocol = data_in_bytes[23:24].hex()
+                protocol_decimal = str(int(protocol, 16))
+                protocol_name = protocols.get(protocol_decimal, "Unknown type")
+                frame.protocol = protocol_name
 
-    if frame_type_result == "IEEE 802.3 LLC & SNAP":
-        pids = get_data_from_file("Protocols/PID.txt")
-        frame_pid_hex = data_in_bytes[20:22].hex().upper()
-        frame_pid_string = "0x" + frame_pid_hex
-        pid_name = pids.get(frame_pid_string, "Unknown type")
-        frame.pid = pid_name
+                if hex_pairs_to_ip(source_ip) not in ip_add_senders:
+                    ip = hex_pairs_to_ip(source_ip)
+                    count = 1
+                    ip_add_senders[ip] = count
+                else:
+                    ip_add_senders[hex_pairs_to_ip(source_ip)] += 1
 
-    if frame_type_result == "IEEE 802.3 LLC":
-        saps = get_data_from_file("Protocols/LLC.txt")
-        frame_sap_hex = data_in_bytes[14:15].hex().upper()
-        frame_sap_string = "0x" + frame_sap_hex
-        sap_name = saps.get(frame_sap_string, "Unknown type")
-        frame.sap = sap_name
+                if protocol_name == "TCP" or protocol_name == "UDP":
+                    source_port = data_in_bytes[34:36].hex()
+                    source_port_decimal = int(source_port, 16)
+                    frame.src_port = source_port_decimal
+                    dest_port = data_in_bytes[36:38].hex()
+                    dest_port_decimal = int(dest_port, 16)
+                    frame.dst_port = dest_port_decimal
 
-    # Vyfiltrujeme preč atribúty s None value pre správny výpis do yamlu
-    frame_dict = {k: v for k, v in frame.__dict__.items() if v is not None}
+                    if protocol_name == "TCP":
+                        tcp_server_ports = get_data_from_file("Protocols/TCP.txt")
+                        if str(source_port_decimal) in tcp_server_ports:
+                            frame.app_protocol = tcp_server_ports.get(str(source_port_decimal))
+                        elif frame.app_protocol is None and str(dest_port_decimal) in tcp_server_ports:
+                            frame.app_protocol = tcp_server_ports.get(str(dest_port_decimal))
+                        tcp_packets.append(frame)
 
-    packet_frames.append(frame_dict)
-    frame_number += 1
+                    elif protocol_name == "UDP":
+                        udp_server_ports = get_data_from_file("Protocols/UDP.txt")
+                        if str(source_port_decimal) in udp_server_ports:
+                            frame.app_protocol = udp_server_ports.get(str(source_port_decimal))
+                        elif frame.app_protocol is None and str(dest_port_decimal) in udp_server_ports:
+                            frame.app_protocol = udp_server_ports.get(str(dest_port_decimal))
+                        udp_packets.append(frame)
 
-for node, packets_sent in ip_add_senders.items():
-    ipv4_sender = IPv4_sender(node, packets_sent)
-    ipv4_dict = {k: v for k, v in ipv4_sender.__dict__.items() if v is not None}
-    ip_address_counter.append(ipv4_dict)
+                if protocol_name == "ICMP":
+                    icmp_codes = get_data_from_file("Protocols/ICMP.txt")
+                    ihl_byte = str(data_in_bytes[14:15].hex())
+                    ihl = ihl_byte[1]
+                    decimal_ihl = int(ihl, 16) * 4
+                    icmp_type = int(data_in_bytes[(14 + decimal_ihl):(14 + decimal_ihl + 1)].hex(), 16)
+                    frame.icmp_type = icmp_codes.get(str(icmp_type))
+                    identifier = int(data_in_bytes[(14 + decimal_ihl + 4): (14 + decimal_ihl + 6)].hex(),16)
+                    frame.icmp_id = identifier
+                    sequence = int(data_in_bytes[(14 + decimal_ihl + 6): (14 + decimal_ihl + 8)].hex(),16)
+                    frame.icmp_seq = sequence
+                    icmp_packets.append(frame)
 
-max_senders = find_max_senders(ip_address_counter)
+        if frame_type_result == "IEEE 802.3 LLC & SNAP":
+            pids = get_data_from_file("Protocols/PID.txt")
+            frame_pid_hex = data_in_bytes[20:22].hex().upper()
+            frame_pid_string = "0x" + frame_pid_hex
+            pid_name = pids.get(frame_pid_string, "Unknown type")
+            frame.pid = pid_name
 
-icmp_comms(icmp_packets)
+        if frame_type_result == "IEEE 802.3 LLC":
+            saps = get_data_from_file("Protocols/LLC.txt")
+            frame_sap_hex = data_in_bytes[14:15].hex().upper()
+            frame_sap_string = "0x" + frame_sap_hex
+            sap_name = saps.get(frame_sap_string, "Unknown type")
+            frame.sap = sap_name
 
-yaml_data = {
-    'name': 'PKS2023/24',
-    'pcap_name': pcap_filename,
-    'packets': packet_frames,
-    'ipv4_senders': ip_address_counter,
-    'max_send_packets_by': max_senders,
-}
+        # Vyfiltrujeme preč atribúty s None value pre správny výpis do yamlu
+        frame_dict = {k: v for k, v in frame.__dict__.items() if v is not None}
 
-with open(yaml_filename, 'w') as yaml_file:
-    yaml = ruamel.yaml.YAML()
-    yaml.dump(yaml_data, yaml_file)
+        packet_frames.append(frame_dict)
+        frame_number += 1
+
+    for node, packets_sent in ip_add_senders.items():
+        ipv4_sender = IPv4_sender(node, packets_sent)
+        ipv4_dict = {k: v for k, v in ipv4_sender.__dict__.items() if v is not None}
+        ip_address_counter.append(ipv4_dict)
+
+    max_senders = find_max_senders(ip_address_counter)
+
+    yaml_data = {
+        'name': 'PKS2023/24',
+        'pcap_name': pcap_filename,
+        'packets': packet_frames,
+        'ipv4_senders': ip_address_counter,
+        'max_send_packets_by': max_senders,
+    }
+
+    with open(yaml_filename, 'w') as yaml_file:
+        yaml = ruamel.yaml.YAML()
+        yaml.dump(yaml_data, yaml_file)
+
+    if user_input == "http" or user_input == "https" or user_input == "telnet" or user_input == "ssh" or user_input == "ftp-control" or user_input == "ftp-data":
+        filtered = filter_tcp_comms(tcp_packets, user_input)
+        grouped = group_comms(filtered)
+        list_tcp = analyze_completeness_of_comm(grouped)
+        distinguish_tcp_comms(list_tcp)
+    elif user_input == "tftp":
+        distinguish_tftp_comms(tftp_comms(udp_packets))
+    elif user_input == "ICMP":
+        icmp_comms(icmp_packets)
+    elif user_input == "ARP":
+        arp_comms(arp_packets)
+    else:
+        red = "\033[91m"
+        reset = "\033[0m"
+        text = "Nesprávny vstup."
+        print(red + text + reset)
+
+
+
+
+
