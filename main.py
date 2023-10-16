@@ -892,6 +892,21 @@ def analyze_all(packets,  frame_number, packet_frames, ip_add_senders, ip_addres
 
 # Menu pre užívateľa:
 if __name__ == "__main__":
+    yaml_filename = 'packets_all.yaml'
+    pcap_filename = input("Zadajte cestu súboru na analýzu so súborom v tvare názovsúboru.pcap:")
+    packets = rdpcap(pcap_filename)
+    frame_number = 1
+    packet_frames = []
+    ip_add_senders = {}
+    ip_address_counter = []
+    tcp_packets = []
+    udp_packets = []
+    icmp_packets = []
+    arp_packets = []
+
+    analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
+                udp_packets, icmp_packets, arp_packets)
+
     print()
     print("*----------------------------------------------------------------------------*")
     print("|                      Analyzátor sieťovej komunikácie                       |")
@@ -909,41 +924,23 @@ if __name__ == "__main__":
     print("ICMP - pre výpis ICMP komunikácii")
     print("ARP - pre výpis ARP komunikácii")
     print()
+
     while True:
         user_input = input("Zadajte filter (skratku protokolu):")
-        pcap_filename = input("Zadajte cestu súboru na analýzu so súborom v tvare názovsúboru.pcap:")
-        yaml_filename = 'packets_all.yaml'
-        packets = rdpcap(pcap_filename)
-        frame_number = 1
-        packet_frames = []
-        ip_add_senders = {}
-        ip_address_counter = []
-        tcp_packets = []
-        udp_packets = []
-        icmp_packets = []
-        arp_packets = []
 
         if user_input == "HTTP" or user_input == "HTTPS" or user_input == "TELNET" or user_input == "SSH" or user_input == "FTP-CONTROL" or user_input == "FTP-DATA":
-            analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
-                        udp_packets, icmp_packets, arp_packets)
             filtered = filter_tcp_comms(tcp_packets, user_input)
             grouped = group_comms(filtered)
             list_tcp = analyze_completeness_of_comm(grouped)
             distinguish_tcp_comms(list_tcp)
             break
         elif user_input == "TFTP":
-            analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
-                        udp_packets, icmp_packets, arp_packets)
             distinguish_tftp_comms(tftp_comms(udp_packets))
             break
         elif user_input == "ICMP":
-            analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
-                        udp_packets, icmp_packets, arp_packets)
             icmp_comms(icmp_packets)
             break
         elif user_input == "ARP":
-            analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
-                        udp_packets, icmp_packets, arp_packets)
             arp_comms(arp_packets)
             break
         else:
