@@ -469,7 +469,7 @@ def distinguish_tcp_comms(filtered_comms):
     yaml_data = {
         'name': 'PKS2023/24',
         'pcap_name': pcap_filename,
-        'filter_name': "HTTP",
+        'filter_name': protocol,
         'complete_comms': complete_comms,
         'partial_comms': incomplete_comms,
     }
