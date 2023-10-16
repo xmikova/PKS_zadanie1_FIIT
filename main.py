@@ -420,7 +420,7 @@ def analyze_completeness_of_comm(filtered_comms):
                 flag_last1 = hexdump_last1[47]
 
                 # FIN, ACK, FIN / FIN-ACK, ACK, FIN-ACK
-                if (flag_last1 == "11" or flag_last1 == "19") and flag_last2 == "10" and (flag_last3 == "11" or flag_last3 == "19"):
+                if ((flag_last1 == "11" or flag_last1 == "19") and (flag_last2 == "10" or flag_last2 == "18") and (flag_last3 == "11" or flag_last3 == "19")) or ((flag_last1 == "10" or flag_last1 == "18") and (flag_last2 == "11" or flag_last2 == "19") and (flag_last3 == "11" or flag_last3 == "19")):
                     complete = 1
                     complete_count += 1
                     flag_complete = 1
@@ -445,6 +445,7 @@ def analyze_completeness_of_comm(filtered_comms):
             comm.number_comm = incomplete_count
 
         comm.is_complete = complete
+        complete = 0
         flag_complete = 0
     return filtered_comms
 
@@ -904,9 +905,6 @@ if __name__ == "__main__":
     icmp_packets = []
     arp_packets = []
 
-    analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
-                udp_packets, icmp_packets, arp_packets)
-
     print()
     print("*----------------------------------------------------------------------------*")
     print("|                      Analyzátor sieťovej komunikácie                       |")
@@ -927,6 +925,8 @@ if __name__ == "__main__":
 
     while True:
         user_input = input("Zadajte filter (skratku protokolu):")
+        analyze_all(packets, frame_number, packet_frames, ip_add_senders, ip_address_counter, tcp_packets,
+                    udp_packets, icmp_packets, arp_packets)
 
         if user_input == "HTTP" or user_input == "HTTPS" or user_input == "TELNET" or user_input == "SSH" or user_input == "FTP-CONTROL" or user_input == "FTP-DATA":
             filtered = filter_tcp_comms(tcp_packets, user_input)
