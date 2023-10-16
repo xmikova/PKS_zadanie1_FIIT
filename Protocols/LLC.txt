@@ -10,8 +10,8 @@
 0x7e X.25 PLP (ISO 8208)
 0x8e PROWAY (IEC 955) Active Station List Maintenance
 0xaa SNAP (Sub-Network Access Protocol/non-IEEE SAPs)
-0xe0 IPX (Novell NetWare)
-0xf0: NETBIOS
+0xe0 IPX
+0xf0 NETBIOS
 0xf4 LAN Management
 0xfe ISO Network Layer Protocols
 0xff Global DSAP
