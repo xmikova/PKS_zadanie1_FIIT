@@ -775,7 +775,7 @@ def analyze_all(packets,  frame_number, packet_frames, ip_add_senders, ip_addres
 
         if frame_type_result == "ETHERNET II":
             ethertypes = get_data_from_file("Protocols/ETHERTYPE.txt")
-            # Na základe bytov 13 a 14 určíme etherype
+            # Na základe bytov 13 a 14 určíme ethertype
             frame_part3_hex = data_in_bytes[12:14].hex().upper()
             frame_part3_string = "0x" + frame_part3_hex
             ethertype_name = ethertypes.get(frame_part3_string, "Unknown type")

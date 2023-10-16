@@ -9,9 +9,9 @@
 11 Time Exceeded
 12 Parameter Problem
 13 Timestamp
-14 Timestamp Eeply
+14 Timestamp Reply
 15 Information Request
-16 Information Eeply
-17 Adress Mask Request
-18 Adress Mask Reply
+16 Information Reply
+17 Address Mask Request
+18 Address Mask Reply
 30 Traceroute
